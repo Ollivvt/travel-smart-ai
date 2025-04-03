@@ -6,13 +6,209 @@ interface Location {
   estimatedDuration: number;
   bestTimeToVisit?: string;
   dayIndex: number;
+  address?: string;
+  isStartingPoint?: boolean;
+  travelTimeToNext?: number;
+}
+
+interface PreferredPlace {
+  name: string;
+  preferredDay: number | null;
+}
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000;
+const MAX_TOKENS = 2048;
+
+async function callGoogleAI(prompt: string, apiKey: string): Promise<any> {
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{ text: prompt }]
+        }],
+        generationConfig: {
+          temperature: 0.2,
+          topK: 32,
+          topP: 0.9,
+          maxOutputTokens: MAX_TOKENS,
+        },
+        safetySettings: [
+          {
+            category: "HARM_CATEGORY_HARASSMENT",
+            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+          },
+          {
+            category: "HARM_CATEGORY_HATE_SPEECH",
+            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+          },
+          {
+            category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+          },
+          {
+            category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+          }
+        ]
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json();
+    if (error.error?.message?.includes('API_KEY_INVALID')) {
+      throw new Error('Invalid Google AI API key. Please check your configuration.');
+    } else if (error.error?.message?.includes('RESOURCE_EXHAUSTED')) {
+      throw new Error('AI generation limit reached. Please try again later or continue with manual planning.');
+    }
+    throw new Error(error.error?.message || 'Failed to generate itinerary');
+  }
+
+  const data = await response.json();
+  return data;
+}
+
+function cleanAndParseResponse(text: string): any {
+  if (!text || typeof text !== 'string') {
+    throw new Error('Empty or invalid response from AI service');
+  }
+
+  console.debug('Raw AI response:', text);
+
+  let cleanedText = text
+    .trim()
+    .replace(/```json\s*|\s*```/g, '')
+    .replace(/^[^[]*(\[[\s\S]*$)/, '$1')
+    .replace(/^([\s\S]*\])[^]*$/, '$1');
+
+  console.debug('After initial cleanup:', cleanedText);
+
+  let braceCount = 0;
+  let lastCompleteObjectEnd = -1;
+  let inString = false;
+  let escapeNext = false;
+
+  for (let i = 0; i < cleanedText.length; i++) {
+    const char = cleanedText[i];
+    
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      escapeNext = true;
+      continue;
+    }
+
+    if (char === '"' && !escapeNext) {
+      inString = !inString;
+      continue;
+    }
+
+    if (!inString) {
+      if (char === '{') {
+        braceCount++;
+      } else if (char === '}') {
+        braceCount--;
+        if (braceCount === 0) {
+          lastCompleteObjectEnd = i;
+        }
+      }
+    }
+  }
+
+  if (braceCount > 0 && lastCompleteObjectEnd !== -1) {
+    cleanedText = cleanedText.substring(0, lastCompleteObjectEnd + 1);
+    if (cleanedText.startsWith('[')) {
+      cleanedText += ']';
+    }
+  }
+
+  console.debug('After brace matching:', cleanedText);
+
+  cleanedText = cleanedText
+    .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '')
+    .replace(/(['"])?([a-zA-Z0-9_]+)(['"])?\s*:/g, '"$2":')
+    .replace(/"address"\s*:\s*"([^"]*?)(?<!\\)"(?=[,}])/g, (match, address) => {
+      const cleanAddress = address
+        .replace(/"/g, '\\"')
+        .replace(/\\"/g, '\\"')
+        .replace(/,\s*([^,]+)$/, ', $1')
+        .trim();
+      return `"address":"${cleanAddress}"`;
+    })
+    .replace(/"description"\s*:\s*"([^"]*?)(?<!\\)"(?=[,}])/g, (match, description) => {
+      const cleanDescription = description
+        .replace(/"/g, '\\"')
+        .replace(/\\"/g, '\\"')
+        .replace(/,\s*([^,]+)$/, ', $1')
+        .trim();
+      return `"description":"${cleanDescription}"`;
+    })
+    .replace(/"estimatedDuration"\s*:\s*"?(\d+)"?/g, '"estimatedDuration":$1')
+    .replace(/"dayIndex"\s*:\s*"?(\d+)"?/g, '"dayIndex":$1')
+    .replace(/"travelTimeToNext"\s*:\s*"?(\d+)"?/g, '"travelTimeToNext":$1')
+    .replace(/,(\s*[}\]])/g, '$1')
+    .replace(/,\s*,/g, ',')
+    .replace(/}\s*{/g, '},{')
+    .replace(/^\s*\{/, '[{')
+    .replace(/}\s*$/, '}]');
+
+  console.debug('After formatting fixes:', cleanedText);
+
+  if (!cleanedText.startsWith('[') || !cleanedText.endsWith(']')) {
+    throw new Error('Invalid JSON structure: Must be an array');
+  }
+
+  try {
+    const parsed = JSON.parse(cleanedText);
+    
+    if (!Array.isArray(parsed)) {
+      throw new Error('Parsed result is not an array');
+    }
+
+    if (parsed.length === 0) {
+      throw new Error('Empty array returned from AI service');
+    }
+
+    return parsed.map((item: Location, index: number) => {
+      if (!item.name || typeof item.dayIndex !== 'number') {
+        throw new Error(`Invalid location data at index ${index}: missing required fields`);
+      }
+
+      return {
+        name: item.name.trim(),
+        description: item.description?.trim() || '',
+        estimatedDuration: typeof item.estimatedDuration === 'number' ? 
+          Math.max(30, Math.min(480, item.estimatedDuration)) : 120,
+        bestTimeToVisit: item.bestTimeToVisit?.trim() || '',
+        dayIndex: item.dayIndex,
+        address: item.address?.trim() || '',
+        travelTimeToNext: typeof item.travelTimeToNext === 'number' ? 
+          Math.max(5, Math.min(180, item.travelTimeToNext)) : null
+      };
+    });
+  } catch (parseError) {
+    console.error('JSON parse error:', parseError);
+    console.error('Failed JSON string:', cleanedText);
+    throw new Error(`Failed to parse AI response: ${parseError.message}`);
+  }
 }
 
 export async function generateItinerary(
   startPoint: string,
   endPoint: string,
   duration: number,
-  mustVisitPlaces: string[],
+  mustVisitPlaces: PreferredPlace[],
   pace: 'relaxed' | 'balanced' | 'intensive' = 'balanced'
 ): Promise<Location[]> {
   const apiKey = import.meta.env.VITE_GOOGLE_AI_API_KEY;
@@ -27,248 +223,149 @@ export async function generateItinerary(
     intensive: 1.3
   };
 
-  const prompt = `As an expert travel planner, create a detailed ${duration}-day travel itinerary from ${startPoint} to ${endPoint}.
+  const formattedPlaces = mustVisitPlaces.map(place => {
+    if (place.preferredDay !== null) {
+      return `${place.name} (Day ${place.preferredDay + 1})`;
+    }
+    return place.name;
+  }).join(', ');
 
-Required locations that MUST be included: ${mustVisitPlaces.join(', ')}
-Travel pace preference: ${pace}
+  const prompt = `As an expert travel planner, create a detailed ${duration}-day itinerary optimized for geographic efficiency.
 
-Consider these critical factors:
-1. Geographic Optimization:
-   - Cluster nearby attractions to minimize travel time
-   - Consider traffic patterns and peak hours
-   - Plan routes efficiently between locations
-   - Include specific travel times between locations (e.g., "approx. 20-30 min drive")
+Start Point: ${startPoint}
+End Point: ${endPoint}
+Must-Visit Places: ${formattedPlaces}
+Pace: ${pace}
 
-2. Timing Optimization:
-   - Best times to visit each location (opening hours, crowds, lighting for photos)
-   - Adequate time for each activity based on importance and size
-   - Buffer time for travel between locations
-   - Meal times and breaks
+CRITICAL REQUIREMENTS:
 
-3. Experience Quality:
-   - Popular attractions during off-peak hours when possible
-   - Logical sequence of activities
-   - Balance between indoor and outdoor activities
-   - Weather considerations for outdoor locations
-   - Local cultural considerations (e.g., prayer times, siesta hours)
+1. Starting Point Rule:
+   - The first location MUST be "${startPoint}" with dayIndex 0
+   - All subsequent locations should be ordered by proximity
 
-4. Pace Adjustment (${pace}):
-   - ${pace === 'relaxed' ? 'More time at each location, longer breaks, later starts' :
-      pace === 'intensive' ? 'Efficient visits, earlier starts, more locations per day' :
-      'Balanced mix of activities and rest'}
-   - Account for travel fatigue
-   - Strategic placement of major attractions
+2. Geographic Optimization:
+   - Group locations by proximity to minimize travel time
+   - Plan each day's route in a logical sequence
+   - Start each day from the previous day's end point
+   - Include EXACT travel times between locations in minutes
+   - Consider typical traffic patterns for time estimates
 
-For each location, include in the description:
-- The exact address or location identifier
-- Approximate travel time to the next location (e.g., "approx. 25-30 min drive to next location")
-- Key features and highlights 
-- Insider tips for the best experience
+3. Travel Time Rules:
+   - Include travelTimeToNext (in minutes) for each location
+   - Use EXACT minutes for travel times, not ranges or descriptions
+   - Short distances (<2km): 15 minutes
+   - Medium distances (2-5km): 25 minutes
+   - Long distances (>5km): 45 minutes
+   - Add 10 minutes during peak hours (8-10am, 4-7pm)
+   - Add 15 minutes for public transit transfers
 
-Return a JSON array of locations with this exact structure:
+4. Duration Guidelines:
+   - Major attractions: 180-240 minutes
+   - Medium attractions: 120-180 minutes
+   - Minor attractions: 60-120 minutes
+   - Include time for security/entry lines
+   - Factor in meal and rest breaks
+
+5. Response Format:
 [
   {
-    "name": "Location name",
-    "address": "Full address of the location",
-    "description": "Detailed description including key features, tips and travel time to next location",
-    "estimatedDuration": 120,
-    "bestTimeToVisit": "morning/afternoon/evening or HH:mm format",
-    "dayIndex": 0
+    "name": "Location Name",
+    "address": "Full Street Address, City, State/Region",
+    "description": "Brief description including key features",
+    "estimatedDuration": number_of_minutes,
+    "travelTimeToNext": number_of_minutes,
+    "bestTimeToVisit": "morning/afternoon/evening or HH:MM",
+    "dayIndex": number
   }
 ]
 
-Important formatting rules:
-1. Use numeric values for estimatedDuration (in minutes)
-2. Use 0-based dayIndex (0 to ${duration - 1})
-3. Keep bestTimeToVisit as either "morning", "afternoon", "evening" or specific time like "14:00"
-4. Ensure the JSON is properly formatted with double quotes
-5. Include ONLY the JSON array, no additional text or explanations
-6. Always include the full address in the address field
-7. Do not include the address in the description field`;
+STRICT FORMAT RULES:
+- First location MUST be "${startPoint}" with dayIndex 0
+- Use ONLY double quotes for strings
+- estimatedDuration and travelTimeToNext must be numbers (no quotes)
+- dayIndex must be between 0 and ${duration - 1}
+- Include FULL addresses
+- Keep descriptions under 200 characters
+- NO trailing commas
+- NO comments or additional text
+- NO markdown formatting
+- RESPOND WITH ONLY THE JSON ARRAY`;
 
-  try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{ text: prompt }]
-          }],
-          generationConfig: {
-            temperature: 0.7,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 2048,
-          },
-          safetySettings: [
-            {
-              category: "HARM_CATEGORY_HARASSMENT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_HATE_SPEECH",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            }
-          ]
-        })
-      }
-    );
+  let lastError: Error | null = null;
 
-    if (!response.ok) {
-      const error = await response.json();
-      if (error.error?.message?.includes('API_KEY_INVALID')) {
-        throw new Error('Invalid Google AI API key. Please check your configuration.');
-      } else if (error.error?.message?.includes('RESOURCE_EXHAUSTED')) {
-        throw new Error('AI generation limit reached. Please try again later or continue with manual planning.');
-      }
-      throw new Error(error.error?.message || 'Failed to generate itinerary');
-    }
-
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!text) {
-      throw new Error('No response received from Google AI');
-    }
-
-    // Clean up the response text to ensure valid JSON
-    const cleanedText = text.trim()
-      .replace(/^```json\s*/, '') // Remove JSON code block start
-      .replace(/\s*```$/, '')     // Remove JSON code block end
-      .replace(/^\s*\[\s*\{/, '[{')  // Clean up leading whitespace
-      .replace(/\}\s*\]\s*$/, '}]'); // Clean up trailing whitespace
-
-    let parsedResponse;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      parsedResponse = JSON.parse(cleanedText);
-    } catch (parseError) {
-      console.error('JSON parse error:', parseError);
-      // Try to extract JSON array if wrapped in other content
-      const jsonMatch = cleanedText.match(/\[\s*\{[^]*\}\s*\]/);
-      if (jsonMatch) {
-        try {
-          parsedResponse = JSON.parse(jsonMatch[0]);
-        } catch (e) {
-          throw new Error('Failed to parse AI response');
-        }
-      } else {
-        throw new Error('Failed to parse AI response');
+      console.debug(`Attempt ${attempt} of ${MAX_RETRIES}`);
+
+      const data = await callGoogleAI(prompt, apiKey);
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!text) {
+        throw new Error('No response received from Google AI');
       }
-    }
-    
-    if (!Array.isArray(parsedResponse)) {
-      throw new Error('Invalid response format from Google AI');
-    }
 
-    // Post-process the response to ensure quality and separation of locations
-    const processedResponse = parsedResponse.map((location: Location) => {
-      // Handle location name and address separation
-      let name = location.name?.trim() || '';
-      
-      // Remove any "- arrival" or similar suffixes from location names
-      name = name.replace(/\s*-\s*(arrival|departure).*$/i, '');
-      
-      // Ensure numeric duration
-      const duration = typeof location.estimatedDuration === 'string' 
-        ? parseInt(location.estimatedDuration, 10)
-        : location.estimatedDuration;
+      const parsedResponse = cleanAndParseResponse(text);
 
-      // Adjust duration based on pace but keep in minutes (don't divide by 60)
-      const adjustedDuration = Math.round(duration * paceMultiplier[pace]);
-      
-      // Normalize bestTimeToVisit format
-      let formattedTime = location.bestTimeToVisit?.toLowerCase();
-      if (formattedTime) {
-        // For specific time formats like "14:00"
-        if (formattedTime.includes(':')) {
+      // Ensure the first location is the starting point
+      if (!parsedResponse[0] || !parsedResponse[0].name.toLowerCase().includes(startPoint.toLowerCase())) {
+        const startingLocation = {
+          name: startPoint,
+          address: startPoint,
+          description: `Starting point of the journey.`,
+          estimatedDuration: 30,
+          travelTimeToNext: 0,
+          bestTimeToVisit: "morning",
+          dayIndex: 0
+        };
+        parsedResponse.unshift(startingLocation);
+      }
+
+      const processedResponse = parsedResponse.map((location: Location, index: number) => {
+        const adjustedDuration = Math.round(location.estimatedDuration * paceMultiplier[pace]);
+
+        let formattedTime = location.bestTimeToVisit?.toLowerCase();
+        if (formattedTime?.includes(':')) {
           try {
             const [hours, minutes] = formattedTime.split(':').map(Number);
             formattedTime = format(new Date().setHours(hours, minutes || 0), 'h:mm a');
           } catch (e) {
-            // Keep original format if parsing fails
+            formattedTime = location.bestTimeToVisit;
           }
-        } 
-        // For descriptive times like "morning", "afternoon", "evening"
-        else if (["morning", "afternoon", "evening"].includes(formattedTime)) {
-          formattedTime = formattedTime.charAt(0).toUpperCase() + formattedTime.slice(1);
         }
-      }
 
-      // Process description to extract any additional address information
-      let description = location.description?.trim() || '';
-      let address = location.address?.trim() || '';
-      
-      // If no address was provided, try to extract it from the description
-      if (!address && description) {
-        // Try to extract an address from the description
-        const addressLineMatch = description.match(/^(.*?)(?:\s*\(([^)]+)\)|\s*-\s*([^,]+))/);
-        if (addressLineMatch && (addressLineMatch[2] || addressLineMatch[3])) {
-          address = addressLineMatch[2] || addressLineMatch[3];
-          // Remove the address from the description
-          description = description.replace(addressLineMatch[0], '').trim();
+        // Ensure travel times are specific numbers
+        let travelTime = location.travelTimeToNext;
+        if (typeof travelTime !== 'number' || travelTime < 0) {
+          // Default travel times based on position in the itinerary
+          travelTime = index < parsedResponse.length - 1 ? 25 : 0;
         }
-      }
 
-      return {
-        name: name,
-        address: address,
-        description: description,
-        estimatedDuration: adjustedDuration,
-        bestTimeToVisit: formattedTime || '',
-        dayIndex: Math.max(0, Math.min(duration - 1, location.dayIndex))
-      };
-    });
+        return {
+          ...location,
+          estimatedDuration: adjustedDuration,
+          bestTimeToVisit: formattedTime || '',
+          dayIndex: Math.max(0, Math.min(duration - 1, location.dayIndex)),
+          travelTimeToNext: travelTime
+        };
+      });
 
-    // Split combined locations if necessary (e.g., "Airport - Hotel")
-    const finalLocations = [];
-    for (const location of processedResponse) {
-      // Check if the location name suggests it should be split
-      if (location.name.includes(' - ') && !location.name.toLowerCase().includes('arrival')) {
-        const [firstPart, secondPart] = location.name.split(' - ').map(part => part.trim());
-        // Create two separate locations
-        finalLocations.push({
-          name: firstPart,
-          address: location.address,
-          description: location.description,
-          estimatedDuration: Math.floor(location.estimatedDuration / 2),
-          bestTimeToVisit: location.bestTimeToVisit,
-          dayIndex: location.dayIndex
-        });
-        
-        finalLocations.push({
-          name: secondPart,
-          address: '',  // We don't have specific address for the second part
-          description: location.description,
-          estimatedDuration: Math.ceil(location.estimatedDuration / 2),
-          bestTimeToVisit: location.bestTimeToVisit,
-          dayIndex: location.dayIndex
-        });
-      } else {
-        finalLocations.push(location);
+      // Sort by day and time, ensuring starting point remains first
+      return processedResponse.sort((a, b) => {
+        if (a.name.toLowerCase().includes(startPoint.toLowerCase())) return -1;
+        if (b.name.toLowerCase().includes(startPoint.toLowerCase())) return 1;
+        if (a.dayIndex !== b.dayIndex) return a.dayIndex - b.dayIndex;
+        return (a.bestTimeToVisit || '').localeCompare(b.bestTimeToVisit || '');
+      });
+    } catch (error: any) {
+      console.error(`Attempt ${attempt} failed:`, error);
+      lastError = error;
+
+      if (attempt < MAX_RETRIES) {
+        console.debug(`Retrying in ${RETRY_DELAY}ms...`);
+        await delay(RETRY_DELAY * attempt);
       }
     }
-
-    // Sort by dayIndex and bestTimeToVisit
-    return finalLocations.sort((a, b) => {
-      if (a.dayIndex !== b.dayIndex) {
-        return a.dayIndex - b.dayIndex;
-      }
-      return (a.bestTimeToVisit || '').localeCompare(b.bestTimeToVisit || '');
-    });
-  } catch (error: any) {
-    console.error('Google AI Error:', error);
-    throw error;
   }
+
+  throw new Error(`Failed to generate itinerary after ${MAX_RETRIES} attempts. Last error: ${lastError?.message}`);
 }

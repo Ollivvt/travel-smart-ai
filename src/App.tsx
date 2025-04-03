@@ -20,29 +20,27 @@ function App() {
     <GoogleOAuthProvider 
       clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID}
     >
-      <AuthProvider>
-        <Router>
-          <div className="min-h-screen bg-gray-50">
-            <Navbar />
-            <Routes>
-              {/* Redirect root to trip view in development */}
-              <Route path="/" element={<Navigate to={`/trip/${DEV_TRIP_ID}`} replace />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
-              <Route path="/new-trip" element={<NewTrip />} />
-              <Route path="/trip/:id" element={
-                <LoadScript
-                  googleMapsApiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY}
-                  libraries={libraries}
-                  loadingElement={<div>Loading maps...</div>}
-                >
-                  <TripView />
-                </LoadScript>
-              } />
-            </Routes>
-          </div>
-        </Router>
-      </AuthProvider>
+      <LoadScript
+        googleMapsApiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY}
+        libraries={libraries}
+        loadingElement={<div>Loading maps...</div>}
+      >
+        <AuthProvider>
+          <Router>
+            <div className="min-h-screen bg-gray-50">
+              <Navbar />
+              <Routes>
+                {/* Redirect root to trip view in development */}
+                <Route path="/" element={<Navigate to={`/trip/${DEV_TRIP_ID}`} replace />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/register" element={<Register />} />
+                <Route path="/new-trip" element={<NewTrip />} />
+                <Route path="/trip/:id" element={<TripView />} />
+              </Routes>
+            </div>
+          </Router>
+        </AuthProvider>
+      </LoadScript>
     </GoogleOAuthProvider>
   );
 }

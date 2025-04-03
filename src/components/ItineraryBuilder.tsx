@@ -35,6 +35,11 @@ interface ItineraryBuilderProps {
   mustVisitPlaces: string[];
 }
 
+interface MustVisitPlace {
+  name: string;
+  dayIndex: number | 'unknown';
+}
+
 export function ItineraryBuilder({
   tripId,
   startDate,
@@ -42,55 +47,37 @@ export function ItineraryBuilder({
   pace,
   departurePoint,
   onSave,
-  mustVisitPlaces,
+  mustVisitPlaces: initialMustVisitPlaces,
 }: ItineraryBuilderProps) {
   const [locations, setLocations] = useState<Location[]>([]);
-  const [selectedDay, setSelectedDay] = useState<number>(0);
+  const [selectedDay, setSelectedDay] = useState<number | 'unknown'>('unknown');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mustVisitPlaces, setMustVisitPlaces] = useState<MustVisitPlace[]>(
+    initialMustVisitPlaces.map(place => ({ name: place, dayIndex: 'unknown' }))
+  );
 
   const tripDays = differenceInDays(endDate, startDate) + 1;
 
-  const handleAddLocation = (location: Omit<Location, 'id' | 'day_index'>) => {
-    const newLocation: Location = {
-      ...location,
-      id: crypto.randomUUID(),
-      day_index: selectedDay,
+  const handleAddMustVisitPlace = (location: Omit<Location, 'id' | 'day_index'>) => {
+    const newPlace: MustVisitPlace = {
+      name: location.name,
+      dayIndex: selectedDay,
     };
-    setLocations((prev) => [...prev, newLocation]);
+    setMustVisitPlaces(prev => [...prev, newPlace]);
     setError(null);
   };
 
-  const handleImportedPlaces = (places: Omit<Location, 'id' | 'day_index'>[]) => {
-    const newLocations = places.map((place) => ({
-      ...place,
-      id: crypto.randomUUID(),
-      day_index: selectedDay,
-    }));
-    setLocations((prev) => [...prev, ...newLocations]);
-    setError(null);
+  const handleRemoveMustVisitPlace = (index: number) => {
+    setMustVisitPlaces(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleLocationRemove = (locationId: string) => {
-    setLocations((prev) => prev.filter((loc) => loc.id !== locationId));
-  };
-
-  const handleLocationsChange = (dayIndex: number, dayLocations: Location[]) => {
-    setLocations((prev) => {
-      const otherDays = prev.filter((loc) => loc.day_index !== dayIndex);
-      return [...otherDays, ...dayLocations.map(loc => ({ ...loc, day_index: dayIndex }))];
+  const handleDayChange = (index: number, newDay: number | 'unknown') => {
+    setMustVisitPlaces(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], dayIndex: newDay };
+      return updated;
     });
-  };
-
-  const handleOptimizedItinerary = (optimizedDays: any[]) => {
-    const newLocations = optimizedDays.flatMap((day, dayIndex) =>
-      day.locations.map((location: Location) => ({
-        ...location,
-        day_index: dayIndex,
-        estimated_duration: Math.round((location.estimated_duration || 60) * (day.totalDuration / day.locations.length)),
-      }))
-    );
-    setLocations(newLocations);
   };
 
   const handleAiItineraryGenerated = (aiLocations: any[]) => {
@@ -98,10 +85,10 @@ export function ItineraryBuilder({
       id: crypto.randomUUID(),
       name: loc.name,
       address: loc.address || '',
-      latitude: 0, // Will be updated by geocoding
-      longitude: 0, // Will be updated by geocoding
+      latitude: 0,
+      longitude: 0,
       day_index: loc.dayIndex,
-      estimated_duration: loc.estimatedDuration, // Using AI's duration estimate in minutes
+      estimated_duration: loc.estimatedDuration,
       arrival_time: loc.bestTimeToVisit,
       notes: loc.description,
     }));
@@ -122,39 +109,86 @@ export function ItineraryBuilder({
 
   return (
     <div className="space-y-8">
-      {/* AI Itinerary Generation Section */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">AI Trip Planning</h2>
-        <AiItineraryGenerator
-          startPoint={departurePoint.name || departurePoint.address}
-          endPoint={departurePoint.name || departurePoint.address}
-          duration={tripDays}
-          pace={pace}
-          mustVisitPlaces={mustVisitPlaces}
-          onItineraryGenerated={handleAiItineraryGenerated}
-        />
-      </div>
-
-      {/* Manual Planning Section */}
+      {/* Combined Planning Section */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Plan Your Itinerary</h2>
-        <div className="space-y-4">
+        <div className="space-y-6">
+          {/* Day Selection and Location Search */}
           <div className="flex gap-4 items-center">
             <select
               value={selectedDay}
-              onChange={(e) => setSelectedDay(Number(e.target.value))}
+              onChange={(e) => setSelectedDay(e.target.value === 'unknown' ? 'unknown' : Number(e.target.value))}
               className="block w-48 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
             >
+              <option value="unknown">Any Day</option>
               {Array.from({ length: tripDays }).map((_, index) => (
                 <option key={index} value={index}>
                   Day {index + 1}
                 </option>
               ))}
             </select>
-            <LocationSearch onLocationSelect={handleAddLocation} />
+            <LocationSearch onLocationSelect={handleAddMustVisitPlace} />
           </div>
-          
-          <PlacesImport onPlacesImport={handleImportedPlaces} />
+
+          {/* Must-Visit Places List */}
+          {mustVisitPlaces.length > 0 && (
+            <div className="mt-4">
+              <h3 className="text-lg font-medium text-gray-900 mb-3">Must-Visit Places</h3>
+              <div className="space-y-3">
+                {mustVisitPlaces.map((place, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center gap-3 bg-gray-50 p-3 rounded-lg"
+                  >
+                    <div className="flex-grow">
+                      <p className="font-medium text-gray-900">{place.name}</p>
+                    </div>
+                    <select
+                      value={place.dayIndex}
+                      onChange={(e) => handleDayChange(index, e.target.value === 'unknown' ? 'unknown' : Number(e.target.value))}
+                      className="px-2 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="unknown">Any Day</option>
+                      {Array.from({ length: tripDays }).map((_, dayIndex) => (
+                        <option key={dayIndex} value={dayIndex}>
+                          Day {dayIndex + 1}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => handleRemoveMustVisitPlace(index)}
+                      className="text-gray-400 hover:text-red-600 transition-colors"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <PlacesImport onPlacesImport={(places) => {
+            const newPlaces = places.map(place => ({
+              name: place.name,
+              dayIndex: 'unknown' as const
+            }));
+            setMustVisitPlaces(prev => [...prev, ...newPlaces]);
+          }} />
+
+          {/* AI Generation Section */}
+          <div className="mt-6">
+            <AiItineraryGenerator
+              startPoint={departurePoint.name || departurePoint.address}
+              endPoint={departurePoint.name || departurePoint.address}
+              duration={tripDays}
+              pace={pace}
+              mustVisitPlaces={mustVisitPlaces.map(place => ({
+                name: place.name,
+                preferredDay: place.dayIndex === 'unknown' ? null : place.dayIndex
+              }))}
+              onItineraryGenerated={handleAiItineraryGenerated}
+            />
+          </div>
 
           <SmartItineraryOptimizer
             locations={locations}
@@ -162,7 +196,15 @@ export function ItineraryBuilder({
             endDate={endDate}
             pace={pace}
             departurePoint={departurePoint}
-            onOptimizedItinerary={handleOptimizedItinerary}
+            onOptimizedItinerary={(optimizedDays) => {
+              const newLocations = optimizedDays.flatMap((day, dayIndex) =>
+                day.locations.map((location: Location) => ({
+                  ...location,
+                  day_index: dayIndex,
+                }))
+              );
+              setLocations(newLocations);
+            }}
           />
         </div>
       </div>
@@ -173,6 +215,7 @@ export function ItineraryBuilder({
         </div>
       )}
 
+      {/* Daily Itineraries */}
       <div className="space-y-6">
         {Array.from({ length: tripDays }).map((_, index) => {
           const dayLocations = locations
@@ -184,13 +227,21 @@ export function ItineraryBuilder({
               key={index}
               date={addDays(startDate, index)}
               locations={dayLocations}
-              onLocationsChange={(newLocations) => handleLocationsChange(index, newLocations)}
-              onLocationRemove={handleLocationRemove}
+              onLocationsChange={(newLocations) => {
+                setLocations(prev => {
+                  const otherDays = prev.filter(loc => loc.day_index !== index);
+                  return [...otherDays, ...newLocations.map(loc => ({ ...loc, day_index: index }))];
+                });
+              }}
+              onLocationRemove={(locationId) => {
+                setLocations(prev => prev.filter(loc => loc.id !== locationId));
+              }}
             />
           );
         })}
       </div>
 
+      {/* Save Button */}
       <div className="flex justify-end">
         <button
           onClick={handleSave}

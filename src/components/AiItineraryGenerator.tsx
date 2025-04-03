@@ -10,12 +10,17 @@ interface Location {
   dayIndex: number;
 }
 
+interface PreferredPlace {
+  name: string;
+  preferredDay: number | null;
+}
+
 interface AiItineraryGeneratorProps {
   startPoint: string;
   endPoint: string;
   duration: number;
   pace: 'relaxed' | 'balanced' | 'intensive';
-  mustVisitPlaces: string[];
+  mustVisitPlaces: PreferredPlace[];
   onItineraryGenerated: (locations: Location[]) => void;
 }
 
@@ -107,10 +112,10 @@ export function AiItineraryGenerator({
               Our AI will create an optimized itinerary considering:
             </p>
             <ul className="text-sm text-blue-600 list-disc list-inside ml-2">
+              <li>Your preferred days for specific locations</li>
               <li>Geographic proximity to minimize travel time</li>
               <li>Best times to visit each location</li>
               <li>Your preferred travel pace ({pace})</li>
-              <li>Must-visit places you've specified</li>
               <li>Logical day-to-day progression</li>
               <li>Travel times between locations</li>
             </ul>
