@@ -80,6 +80,16 @@ export function ItineraryBuilder({
     });
   };
 
+  const handleDropLocation = (locationId: string, targetDate: Date) => {
+    const targetDayIndex = differenceInDays(targetDate, startDate);
+  
+    setLocations(prev =>
+      prev.map(loc =>
+        loc.id === locationId ? { ...loc, day_index: targetDayIndex } : loc
+      )
+    );
+  };  
+
   const handleAiItineraryGenerated = (aiLocations: any[]) => {
     const newLocations = aiLocations.map(loc => ({
       id: crypto.randomUUID(),
@@ -224,19 +234,20 @@ export function ItineraryBuilder({
 
           return (
             <DailyItinerary
-              key={index}
-              date={addDays(startDate, index)}
-              locations={dayLocations}
-              onLocationsChange={(newLocations) => {
-                setLocations(prev => {
-                  const otherDays = prev.filter(loc => loc.day_index !== index);
-                  return [...otherDays, ...newLocations.map(loc => ({ ...loc, day_index: index }))];
-                });
-              }}
-              onLocationRemove={(locationId) => {
-                setLocations(prev => prev.filter(loc => loc.id !== locationId));
-              }}
-            />
+            key={index}
+            date={addDays(startDate, index)}
+            locations={dayLocations}
+            onLocationsChange={(newLocations) => {
+              setLocations(prev => {
+                const otherDays = prev.filter(loc => loc.day_index !== index);
+                return [...otherDays, ...newLocations.map(loc => ({ ...loc, day_index: index }))];
+              });
+            }}
+            onLocationRemove={(locationId) => {
+              setLocations(prev => prev.filter(loc => loc.id !== locationId));
+            }}
+            onDropLocation={handleDropLocation}
+          />
           );
         })}
       </div>
