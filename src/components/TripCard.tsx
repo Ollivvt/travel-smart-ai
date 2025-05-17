@@ -18,7 +18,17 @@ export function TripCard({ trip }: TripCardProps) {
         <h3 className="text-xl font-semibold text-gray-900 mb-2">{trip.title}</h3>
         <div className="flex items-center text-gray-600 mb-2">
           <MapPin className="h-4 w-4 mr-2" />
-          <span>{trip.destination}</span>
+          <div className="flex flex-col">
+            <span className="text-sm text-gray-500">From</span>
+            <span>{trip.departurePoint.name || trip.departurePoint.address}</span>
+          </div>
+        </div>
+        <div className="flex items-center text-gray-600 mb-2">
+          <MapPin className="h-4 w-4 mr-2" />
+          <div className="flex flex-col">
+            <span className="text-sm text-gray-500">To</span>
+            <span>{trip.returnPoint.name || trip.returnPoint.address}</span>
+          </div>
         </div>
         <div className="flex items-center text-gray-600">
           <Calendar className="h-4 w-4 mr-2" />

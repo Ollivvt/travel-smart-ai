@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plane, Plus, Edit2, Trash2 } from 'lucide-react';
+import { Plane, Plus, Edit2, Trash2, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -38,6 +38,18 @@ export function Trips() {
           updatedAt: new Date(trip.updated_at),
           userId: trip.user_id,
           mustVisitPlaces: trip.must_visit_places || [],
+          departurePoint: {
+            name: trip.departure_point_name || '',
+            address: trip.departure_point_address || '',
+            latitude: trip.departure_point_latitude || 0,
+            longitude: trip.departure_point_longitude || 0,
+          },
+          returnPoint: {
+            name: trip.return_point_name || '',
+            address: trip.return_point_address || '',
+            latitude: trip.return_point_latitude || 0,
+            longitude: trip.return_point_longitude || 0,
+          },
         })));
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load trips');
@@ -165,8 +177,18 @@ export function Trips() {
                       <Link to={`/trip/${trip.id}`} className="block flex-grow">
                         <h3 className="text-xl font-semibold text-gray-900 mb-2">{trip.title}</h3>
                         <div className="flex items-center text-gray-600 mb-2">
-                          <Plane className="h-4 w-4 mr-2" />
-                          <span>{trip.destination}</span>
+                          <MapPin className="h-4 w-4 mr-2" />
+                          <div className="flex flex-col">
+                            <span className="text-sm text-gray-500">From</span>
+                            <span>{trip.departurePoint?.name || trip.departurePoint?.address || 'No departure point'}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center text-gray-600 mb-2">
+                          <MapPin className="h-4 w-4 mr-2" />
+                          <div className="flex flex-col">
+                            <span className="text-sm text-gray-500">To</span>
+                            <span>{trip.returnPoint?.name || trip.returnPoint?.address || 'No return point'}</span>
+                          </div>
                         </div>
                         <div className="text-gray-600">
                           {format(trip.startDate, 'MMM d')} - {format(trip.endDate, 'MMM d, yyyy')}

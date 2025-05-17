@@ -6,6 +6,7 @@ export interface Trip {
   destination: string;
   userId: string;
   pace: 'relaxed' | 'balanced' | 'intensive';
+  mustVisitPlaces: string[];
 
   accommodation: {
     name: string;

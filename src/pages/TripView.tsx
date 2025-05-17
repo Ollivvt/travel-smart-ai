@@ -112,7 +112,17 @@ export function TripView() {
               <div className="space-y-2">
                 <div className="flex items-center text-gray-600">
                   <MapPin className="h-5 w-5 mr-2" />
-                  <span>{trip.destination}</span>
+                  <div className="flex flex-col">
+                    <span className="text-sm text-gray-500">From</span>
+                    <span>{trip.departurePoint.name || trip.departurePoint.address}</span>
+                  </div>
+                </div>
+                <div className="flex items-center text-gray-600">
+                  <MapPin className="h-5 w-5 mr-2" />
+                  <div className="flex flex-col">
+                    <span className="text-sm text-gray-500">To</span>
+                    <span>{trip.returnPoint.name || trip.returnPoint.address}</span>
+                  </div>
                 </div>
                 <div className="flex items-center text-gray-600">
                   <Calendar className="h-5 w-5 mr-2" />
