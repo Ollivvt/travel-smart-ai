@@ -101,6 +101,7 @@ export function ItineraryBuilder({
       estimated_duration: loc.estimatedDuration,
       arrival_time: loc.bestTimeToVisit,
       notes: loc.description,
+      travelTimeToNext: loc.travelTimeToNext,
     }));
     setLocations(newLocations);
   };

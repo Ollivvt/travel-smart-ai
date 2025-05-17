@@ -12,6 +12,7 @@ interface Location {
   arrival_time?: string;
   rating?: number;
   notes?: string;
+  travelTimeToNext?: number;
 }
 
 interface DailyItineraryProps {
@@ -150,22 +151,21 @@ export function DailyItinerary({
                     <div className="font-medium">To {locations[index + 1].name}</div>
                     <div className="text-gray-500">
                       {(() => {
+                        if (!location.travelTimeToNext) return 'Travel time not available';
+                        
                         const text = location.notes?.toLowerCase() || '';
-                        const timePattern = /(\d+)[-–—](\d+)\s*min/i;
-                        const approxPattern = /approx\.\s*([\d-–—]+\s*(?:min|hour|hr))/i;
-                        const drivePattern = /(?:drive|travel|trip)\s*(?:time|is|of)?\s*([\d-–—]+\s*(?:min|hour|hr))/i;
-
-                        const timeMatch = text.match(timePattern);
-                        if (timeMatch) return `~${timeMatch[1]}-${timeMatch[2]} min travel time`;
-
-                        const approxMatch = text.match(approxPattern);
-                        if (approxMatch) return `~${approxMatch[1]} travel time`;
-
-                        const driveMatch = text.match(drivePattern);
-                        if (driveMatch) return `~${driveMatch[1]} travel time`;
-
-                        if (text.includes('min') || text.includes('hour')) return 'Travel time varies with traffic';
-                        return 'Travel time varies with traffic';
+                        const hasTransit = text.includes('public transport') || 
+                                         text.includes('transit') || 
+                                         text.includes('bus') || 
+                                         text.includes('train');
+                        const isRushHour = location.arrival_time?.match(/(8|9|16|17|18):00/) ? true : false;
+                        
+                        let details = [];
+                        if (isRushHour) details.push('rush hour');
+                        if (hasTransit) details.push('transit');
+                        
+                        const detailsText = details.length > 0 ? ` (includes ${details.join(' & ')})` : '';
+                        return `${location.travelTimeToNext} min${detailsText}`;
                       })()}
                     </div>
                   </div>

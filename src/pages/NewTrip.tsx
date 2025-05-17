@@ -261,6 +261,46 @@ export function NewTrip() {
               </div>
 
               <div className="space-y-4">
+                <h3 className="text-lg font-medium text-gray-900">Trip Pace</h3>
+                
+                <div className="grid grid-cols-3 gap-3">
+                  <div
+                    className={`flex flex-col items-center justify-center p-4 border rounded-lg cursor-pointer ${
+                      formData.pace === 'relaxed'
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-300'
+                    }`}
+                    onClick={() => setFormData(prev => ({ ...prev, pace: 'relaxed' }))}
+                  >
+                    <span className="font-medium">Relaxed</span>
+                    <span className="text-sm text-gray-500 text-center mt-1">More time at each location</span>
+                  </div>
+                  <div
+                    className={`flex flex-col items-center justify-center p-4 border rounded-lg cursor-pointer ${
+                      formData.pace === 'balanced'
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-300'
+                    }`}
+                    onClick={() => setFormData(prev => ({ ...prev, pace: 'balanced' }))}
+                  >
+                    <span className="font-medium">Balanced</span>
+                    <span className="text-sm text-gray-500 text-center mt-1">Standard pacing</span>
+                  </div>
+                  <div
+                    className={`flex flex-col items-center justify-center p-4 border rounded-lg cursor-pointer ${
+                      formData.pace === 'intensive'
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-300'
+                    }`}
+                    onClick={() => setFormData(prev => ({ ...prev, pace: 'intensive' }))}
+                  >
+                    <span className="font-medium">Intensive</span>
+                    <span className="text-sm text-gray-500 text-center mt-1">Pack in more activities</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
                 <h3 className="text-lg font-medium text-gray-900">Transportation Preferences</h3>
                 
                 <div>
