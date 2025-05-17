@@ -6,11 +6,7 @@ export interface Trip {
   destination: string;
   userId: string;
   pace: 'relaxed' | 'balanced' | 'intensive';
-  transportationMode: 'public_transit' | 'self_driving';
-  useRideshare: boolean;
-  walkingComfortDistance: number;
-  avoidHighways: boolean;
-  avoidTolls: boolean;
+
   accommodation: {
     name: string;
     address: string;

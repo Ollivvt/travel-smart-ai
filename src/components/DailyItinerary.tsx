@@ -1,5 +1,5 @@
 import React from 'react';
-import { Clock, MapPin, Trash2, GripVertical, Star, Car } from 'lucide-react';
+import { Clock, MapPin, Trash2, GripVertical, Star } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface Location {
@@ -13,6 +13,7 @@ interface Location {
   rating?: number;
   notes?: string;
   travelTimeToNext?: number;
+
 }
 
 interface DailyItineraryProps {
@@ -144,8 +145,8 @@ export function DailyItinerary({
               <div className="relative pl-8 py-2">
                 <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200"></div>
                 <div className="relative flex items-center">
-                  <div className="absolute -left-6 p-1.5 bg-white border-2 border-gray-200 rounded-full">
-                    <Car className="h-4 w-4 text-gray-400" />
+                  <div className="absolute -left-6 p-1.5 bg-white border-2 border-gray-200 rounded-full flex">
+                    <Clock className="h-4 w-4 text-gray-400" />
                   </div>
                   <div className="ml-4 bg-gray-50 px-4 py-2 rounded-lg text-sm text-gray-600">
                     <div className="font-medium">To {locations[index + 1].name}</div>
@@ -153,19 +154,8 @@ export function DailyItinerary({
                       {(() => {
                         if (!location.travelTimeToNext) return 'Travel time not available';
                         
-                        const text = location.notes?.toLowerCase() || '';
-                        const hasTransit = text.includes('public transport') || 
-                                         text.includes('transit') || 
-                                         text.includes('bus') || 
-                                         text.includes('train');
-                        const isRushHour = location.arrival_time?.match(/(8|9|16|17|18):00/) ? true : false;
-                        
-                        let details = [];
-                        if (isRushHour) details.push('rush hour');
-                        if (hasTransit) details.push('transit');
-                        
-                        const detailsText = details.length > 0 ? ` (includes ${details.join(' & ')})` : '';
-                        return `${location.travelTimeToNext} min${detailsText}`;
+                        if (!location.travelTimeToNext) return 'Travel time not available';
+                        return `${location.travelTimeToNext} min`;
                       })()}
                     </div>
                   </div>

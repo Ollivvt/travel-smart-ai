@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Clock, Plus, Car, Train, Navigation } from 'lucide-react';
+import { Calendar, Clock, Navigation } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { useLoadScript } from '@react-google-maps/api';
@@ -19,11 +19,7 @@ interface TripFormData {
   startDate: string;
   endDate: string;
   pace: 'relaxed' | 'balanced' | 'intensive';
-  transportationMode: 'public_transit' | 'self_driving';
-  useRideshare: boolean;
-  walkingComfortDistance: number;
-  avoidHighways: boolean;
-  avoidTolls: boolean;
+
   departurePoint: Location;
   returnPoint: Location;
   sameReturnPoint: boolean;
@@ -48,11 +44,7 @@ export function NewTrip() {
     startDate: '',
     endDate: '',
     pace: 'balanced',
-    transportationMode: 'public_transit',
-    useRideshare: false,
-    walkingComfortDistance: 1000,
-    avoidHighways: false,
-    avoidTolls: false,
+
     departurePoint: {
       name: '',
       address: '',
@@ -86,11 +78,7 @@ export function NewTrip() {
             end_date: formData.endDate,
             user_id: user.id,
             pace: formData.pace,
-            transportation_mode: formData.transportationMode,
-            use_rideshare: formData.useRideshare,
-            walking_comfort_distance: formData.walkingComfortDistance,
-            avoid_highways: formData.avoidHighways,
-            avoid_tolls: formData.avoidTolls,
+
             departure_point_name: formData.departurePoint.name,
             departure_point_address: formData.departurePoint.address,
             departure_point_latitude: formData.departurePoint.latitude,
@@ -300,107 +288,7 @@ export function NewTrip() {
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium text-gray-900">Transportation Preferences</h3>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">
-                    Primary Transportation Mode
-                  </label>
-                  <div className="mt-2 grid grid-cols-2 gap-3">
-                    <div
-                      className={`flex items-center justify-center p-4 border rounded-lg cursor-pointer ${
-                        formData.transportationMode === 'public_transit'
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-300'
-                      }`}
-                      onClick={() => setFormData(prev => ({ ...prev, transportationMode: 'public_transit' }))}
-                    >
-                      <Train className="h-6 w-6 mr-2" />
-                      <span>Public Transit</span>
-                    </div>
-                    <div
-                      className={`flex items-center justify-center p-4 border rounded-lg cursor-pointer ${
-                        formData.transportationMode === 'self_driving'
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-300'
-                      }`}
-                      onClick={() => setFormData(prev => ({ ...prev, transportationMode: 'self_driving' }))}
-                    >
-                      <Car className="h-6 w-6 mr-2" />
-                      <span>Self-Driving</span>
-                    </div>
-                  </div>
-                </div>
 
-                <div className="space-y-2">
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      id="useRideshare"
-                      name="useRideshare"
-                      checked={formData.useRideshare}
-                      onChange={handleInputChange}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                    />
-                    <label htmlFor="useRideshare" className="ml-2 block text-sm text-gray-700">
-                      Include rideshare options when available
-                    </label>
-                  </div>
-
-                  <div>
-                    <label htmlFor="walkingComfortDistance" className="block text-sm font-medium text-gray-700">
-                      Maximum Walking Distance (meters)
-                    </label>
-                    <input
-                      type="range"
-                      id="walkingComfortDistance"
-                      name="walkingComfortDistance"
-                      min="500"
-                      max="5000"
-                      step="100"
-                      value={formData.walkingComfortDistance}
-                      onChange={handleInputChange}
-                      className="mt-1 w-full"
-                    />
-                    <div className="text-sm text-gray-500 mt-1">
-                      {formData.walkingComfortDistance} meters
-                    </div>
-                  </div>
-
-                  {formData.transportationMode === 'self_driving' && (
-                    <div className="space-y-2">
-                      <div className="flex items-center">
-                        <input
-                          type="checkbox"
-                          id="avoidHighways"
-                          name="avoidHighways"
-                          checked={formData.avoidHighways}
-                          onChange={handleInputChange}
-                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                        />
-                        <label htmlFor="avoidHighways" className="ml-2 block text-sm text-gray-700">
-                          Avoid highways
-                        </label>
-                      </div>
-
-                      <div className="flex items-center">
-                        <input
-                          type="checkbox"
-                          id="avoidTolls"
-                          name="avoidTolls"
-                          checked={formData.avoidTolls}
-                          onChange={handleInputChange}
-                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                        />
-                        <label htmlFor="avoidTolls" className="ml-2 block text-sm text-gray-700">
-                          Avoid toll roads
-                        </label>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
 
               <div className="mt-6">
                 <button

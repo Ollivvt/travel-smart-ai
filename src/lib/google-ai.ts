@@ -246,14 +246,9 @@ function cleanAndParseResponse(text: string): Location[] {
 
       // For attractions, calculate exact travel times using our updated logic
       const baseTime = getBaseTravelTime(item.travelTimeToNext, item.description);
-      const needsTransit = item.description?.toLowerCase().includes('public transport') || 
-                          item.description?.toLowerCase().includes('transit') ||
-                          item.description?.toLowerCase().includes('bus') ||
-                          item.description?.toLowerCase().includes('train');
-      
       // Get time of day from bestTimeToVisit if available
       let timeStr = item.bestTimeToVisit?.toLowerCase() || '';
-      const calculatedTravelTime = calculateExactTravelTime(baseTime, isRushHour(timeStr), needsTransit);
+      const calculatedTravelTime = calculateExactTravelTime(baseTime, isRushHour(timeStr));
       // Ensure within reasonable bounds (5min-3hrs)
       const finalTravelTime = Math.max(5, Math.min(180, calculatedTravelTime));
 
@@ -346,17 +341,12 @@ function getBaseTravelTime(travelTime: string | number | undefined | null, descr
 }
 
 // Calculate exact travel time based on distance and traffic rules
-function calculateExactTravelTime(base: number, isRushHour: boolean, needsTransit: boolean): number {
+function calculateExactTravelTime(base: number, isRushHour: boolean): number {
   let time = base;
   
   // Rush hour adjustment (40% increase during peak hours)
   if (isRushHour) {
     time *= 1.4;
-  }
-  
-  // Public transit adjustment
-  if (needsTransit) {
-    time += 15; // Add 15 minutes for transfers and waiting time
   }
   
   return Math.round(time);
@@ -444,8 +434,7 @@ CRITICAL REQUIREMENTS:
    - Short distances (<2km): 15 minutes
    - Medium distances (2-5km): 25 minutes
    - Long distances (>5km): 45 minutes
-   - Add 10 minutes during peak hours (8-10am, 4-7pm)
-   - Add 15 minutes for public transit transfers
+   - Add 40% to travel time during peak hours (8-10am, 4-7pm)
 
 5. Duration Guidelines (Not Applicable to Hotels):
    - Major attractions: 180-240 minutes
@@ -546,14 +535,9 @@ STRICT FORMAT RULES:
 
         // Calculate exact travel time
         const baseTime = getBaseTravelTime(attraction.travelTimeToNext, attraction.description);
-        const needsTransit = attraction.description?.toLowerCase().includes('public transport') || 
-                            attraction.description?.toLowerCase().includes('transit') ||
-                            attraction.description?.toLowerCase().includes('bus') ||
-                            attraction.description?.toLowerCase().includes('train');
         const exactTravelTime = calculateExactTravelTime(
           baseTime,
-          isRushHour(formattedTime || ''),
-          needsTransit
+          isRushHour(formattedTime || '')
         );
 
         return {

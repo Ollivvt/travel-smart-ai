@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Clock, Navigation, AlertTriangle } from 'lucide-react';
 
 interface Location {
@@ -24,10 +24,7 @@ interface SmartItineraryOptimizerProps {
   startDate: Date;
   endDate: Date;
   pace: 'relaxed' | 'balanced' | 'intensive';
-  departurePoint: {
-    latitude: number;
-    longitude: number;
-  };
+
   onOptimizedItinerary: (days: OptimizedDay[]) => void;
 }
 
@@ -36,7 +33,6 @@ export function SmartItineraryOptimizer({
   startDate,
   endDate,
   pace,
-  departurePoint,
   onOptimizedItinerary,
 }: SmartItineraryOptimizerProps) {
   const [isOptimizing, setIsOptimizing] = useState(false);
@@ -77,7 +73,7 @@ export function SmartItineraryOptimizer({
     setError(null);
 
     try {
-      const directionsService = new google.maps.DirectionsService();
+  
       const paceMultiplier = getPaceMultiplier(pace);
       const daysCount = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
       
@@ -91,11 +87,7 @@ export function SmartItineraryOptimizer({
           dayDate.setDate(dayDate.getDate() + index);
 
           // Calculate optimal route within cluster
-          const optimizedLocations = await optimizeRoute(
-            cluster,
-            departurePoint,
-            directionsService
-          );
+          const optimizedLocations = optimizeRoute(cluster);
 
           // Calculate total times
           let totalTravelTime = 0;
@@ -107,11 +99,7 @@ export function SmartItineraryOptimizer({
 
             if (i < optimizedLocations.length - 1) {
               const nextLocation = optimizedLocations[i + 1];
-              const travelTime = await calculateTravelTime(
-                location,
-                nextLocation,
-                directionsService
-              );
+              const travelTime = calculateTravelTime(location, nextLocation);
               totalTravelTime += travelTime;
             }
           }
@@ -149,11 +137,9 @@ export function SmartItineraryOptimizer({
     return clusters;
   };
 
-  const optimizeRoute = async (
-    locations: Location[],
-    startPoint: { latitude: number; longitude: number },
-    directionsService: google.maps.DirectionsService
-  ): Promise<Location[]> => {
+  const optimizeRoute = (
+    locations: Location[]
+  ): Location[] => {
     if (locations.length <= 1) return locations;
 
     // Calculate distances between all points
@@ -200,49 +186,19 @@ export function SmartItineraryOptimizer({
     return route;
   };
 
-  const calculateTravelTime = async (
+  const calculateTravelTime = (
     from: Location,
-    to: Location,
-    directionsService: google.maps.DirectionsService
-  ): Promise<number> => {
+    to: Location
+  ): number => {
     try {
-      const result = await new Promise<google.maps.DirectionsResult>((resolve, reject) => {
-        directionsService.route(
-          {
-            origin: { lat: from.latitude, lng: from.longitude },
-            destination: { lat: to.latitude, lng: to.longitude },
-            travelMode: google.maps.TravelMode.DRIVING,
-            // Add alternatives and avoid options
-            provideRouteAlternatives: true,
-            avoidHighways: true,
-            avoidTolls: true
-          },
-          (response, status) => {
-            if (status === 'OK') {
-              resolve(response!);
-            } else if (status === 'ZERO_RESULTS') {
-              // If no driving route found, fallback to distance-based estimation
-              const distance = calculateDistance(
-                from.latitude,
-                from.longitude,
-                to.latitude,
-                to.longitude
-              );
-              resolve({
-                routes: [{
-                  legs: [{
-                    duration: { value: Math.round(distance * 2 * 60) } // Rough estimate: 30 km/h
-                  }]
-                }]
-              } as google.maps.DirectionsResult);
-            } else {
-              reject(status);
-            }
-          }
-        );
-      });
-
-      return result.routes[0].legs[0].duration?.value || 0;
+      const distance = calculateDistance(
+        from.latitude,
+        from.longitude,
+        to.latitude,
+        to.longitude
+      );
+      // Simple distance-based estimation: assume 30 km/h average speed
+      return Math.round(distance * 2 * 60);
     } catch (error) {
       console.error('Error calculating travel time:', error);
       // Fallback to rough estimation based on distance
