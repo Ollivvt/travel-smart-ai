@@ -1,5 +1,8 @@
 # TripSmart: AI-Powered Travel Itinerary Planner
 
+https://github.com/user-attachments/assets/f79a5477-1861-41c8-806f-9c0c0a9103e3
+
+
 ## Core Features
 
 ### Google Maps Integration
