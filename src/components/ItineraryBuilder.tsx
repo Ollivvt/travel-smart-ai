@@ -1,23 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { addDays, differenceInDays } from 'date-fns';
 import { DailyItinerary } from './DailyItinerary';
 import { LocationSearch } from './LocationSearch';
 import { PlacesImport } from './PlacesImport';
 import { SmartItineraryOptimizer } from './SmartItineraryOptimizer';
 import { AiItineraryGenerator } from './AiItineraryGenerator';
-import { Save, Plus, X } from 'lucide-react';
+import { Save, Plus, X, Check } from 'lucide-react';
 
-interface Location {
+export interface Location {
   id: string;
   name: string;
   address: string;
   latitude: number;
   longitude: number;
   day_index: number;
+  trip_id?: string;  // Optional in frontend since it's added during save
   estimated_duration?: number;
   arrival_time?: string;
   rating?: number;
   notes?: string;
+  travelTimeToNext?: number;  // UI-only field
 }
 
 interface ItineraryBuilderProps {
@@ -33,6 +35,7 @@ interface ItineraryBuilderProps {
   };
   onSave: (locations: Location[]) => Promise<void>;
   mustVisitPlaces: string[];
+  initialLocations?: Location[]; // Add this line
 }
 
 interface MustVisitPlace {
@@ -48,14 +51,26 @@ export function ItineraryBuilder({
   departurePoint,
   onSave,
   mustVisitPlaces: initialMustVisitPlaces,
+  initialLocations = [], // Add default value
 }: ItineraryBuilderProps) {
-  const [locations, setLocations] = useState<Location[]>([]);
+  const [locations, setLocations] = useState<Location[]>(initialLocations);
   const [selectedDay, setSelectedDay] = useState<number | 'unknown'>('unknown');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [isFirstLoad, setIsFirstLoad] = useState(true);
   const [mustVisitPlaces, setMustVisitPlaces] = useState<MustVisitPlace[]>(
     initialMustVisitPlaces.map(place => ({ name: place, dayIndex: 'unknown' }))
   );
+
+  // Only update locations from initialLocations on first load
+  useEffect(() => {
+    if (isFirstLoad) {
+      console.log('Initial load - setting locations:', initialLocations);
+      setLocations(initialLocations);
+      setIsFirstLoad(false);
+    }
+  }, [initialLocations, isFirstLoad]);
 
   const tripDays = differenceInDays(endDate, startDate) + 1;
 
@@ -85,34 +100,159 @@ export function ItineraryBuilder({
   
     setLocations(prev =>
       prev.map(loc =>
-        loc.id === locationId ? { ...loc, day_index: targetDayIndex } : loc
+        loc.id === locationId ? {
+          ...loc,
+          day_index: targetDayIndex,
+          // Preserve all other fields
+          name: loc.name,
+          address: loc.address || loc.name,  // Ensure address is set
+          latitude: loc.latitude,
+          longitude: loc.longitude,
+          estimated_duration: loc.estimated_duration,
+          arrival_time: loc.arrival_time,
+          rating: loc.rating,
+          notes: loc.notes,
+          travelTimeToNext: loc.travelTimeToNext
+        } : loc
       )
     );
   };  
 
   const handleAiItineraryGenerated = (aiLocations: any[]) => {
-    const newLocations = aiLocations.map(loc => ({
-      id: crypto.randomUUID(),
-      name: loc.name,
-      address: loc.address || '',
-      latitude: 0,
-      longitude: 0,
-      day_index: loc.dayIndex,
-      estimated_duration: loc.estimatedDuration,
-      arrival_time: loc.bestTimeToVisit,
-      notes: loc.description,
-      travelTimeToNext: loc.travelTimeToNext,
-    }));
+    const existingLocationMap = new Map(locations.map(loc => [loc.name, loc]));
+    
+    const newLocations = aiLocations.map(loc => {
+      const existingLocation = existingLocationMap.get(loc.name);
+      return {
+        // If we have an existing location with this name, use its ID and data
+        ...(existingLocation || {
+          id: crypto.randomUUID(),
+          latitude: 0,
+          longitude: 0,
+        }),
+        name: loc.name,
+        address: loc.address || loc.name,  // Ensure address is never empty
+        day_index: loc.dayIndex,
+        latitude: existingLocation?.latitude || 0,  // Default to 0 if no coordinates
+        longitude: existingLocation?.longitude || 0,
+        estimated_duration: loc.estimatedDuration,
+        arrival_time: loc.bestTimeToVisit,
+        notes: loc.description,
+        travelTimeToNext: loc.travelTimeToNext,
+      };
+    });
     setLocations(newLocations);
   };
 
+  const handleOptimizedItinerary = (optimizedDays: any) => {
+    const existingLocationMap = new Map(locations.map(loc => [loc.id, loc]));
+    
+    const newLocations = optimizedDays.flatMap((day: any, dayIndex: number) =>
+      day.locations.map((location: any) => {
+        // Preserve existing location data
+        const existingLocation = existingLocationMap.get(location.id);
+        return {
+          ...(existingLocation || location),
+          name: location.name || existingLocation?.name,
+          address: location.address || existingLocation?.address || location.name,  // Fallback to name if no address
+          latitude: location.latitude || existingLocation?.latitude || 0,
+          longitude: location.longitude || existingLocation?.longitude || 0,
+          day_index: dayIndex,
+          // Preserve these fields if they existed
+          estimated_duration: existingLocation?.estimated_duration,
+          arrival_time: existingLocation?.arrival_time,
+          rating: existingLocation?.rating,
+          notes: existingLocation?.notes
+        };
+      })
+    );
+    setLocations(newLocations);
+  };
+
+  // Remove unused function
+
   const handleSave = async () => {
+    if (isSaving) return;
+    
     setIsSaving(true);
     setError(null);
+    setSaveSuccess(false);
+
     try {
-      await onSave(locations);
+      // Basic validation
+      if (locations.length === 0) {
+        throw new Error('Please add at least one location to the itinerary before saving');
+      }
+
+      // Validate required fields and day indices
+      for (const loc of locations) {
+        const issues: string[] = [];
+        
+        if (!loc.name?.trim()) {
+          issues.push('Name is required');
+        }
+        if (!loc.address?.trim()) {
+          issues.push('Address is required');
+        }
+        if (typeof loc.latitude !== 'number' || isNaN(loc.latitude)) {
+          issues.push('Valid latitude is required');
+        }
+        if (typeof loc.longitude !== 'number' || isNaN(loc.longitude)) {
+          issues.push('Valid longitude is required');
+        }
+        if (typeof loc.day_index !== 'number' || loc.day_index < 0 || loc.day_index >= tripDays) {
+          issues.push(`Day index must be between 0 and ${tripDays - 1}`);
+        }
+
+        if (issues.length > 0) {
+          throw new Error(
+            `Invalid data for location "${loc.name || 'Unnamed'}":\n` +
+            issues.map(issue => `- ${issue}`).join('\n')
+          );
+        }
+      }
+
+      // Remove UI-only fields and ensure all required fields are set
+      const locationsToSave = locations.map(({ travelTimeToNext, ...location }) => ({
+        ...location,
+        trip_id: tripId,
+        // Ensure required fields are set with proper fallbacks
+        name: location.name.trim(),
+        address: location.address?.trim() || location.name.trim(),
+        latitude: typeof location.latitude === 'number' ? location.latitude : 0,
+        longitude: typeof location.longitude === 'number' ? location.longitude : 0,
+        day_index: location.day_index
+      }));
+
+      console.log('Saving locations:', locationsToSave);
+
+      await onSave(locationsToSave);
+      
+      // Update local state to match saved version while preserving UI-only fields
+      const updatedLocations = locationsToSave.map(savedLoc => {
+        const originalLoc = locations.find(loc => loc.id === savedLoc.id);
+        return {
+          ...savedLoc,
+          // Keep UI-specific fields from the original location
+          travelTimeToNext: originalLoc?.travelTimeToNext,
+        };
+      });
+      
+      // Update local state with the saved version
+      setLocations(updatedLocations);
+      setSaveSuccess(true);
+      
+      // Reset save success state after a delay
+      const timeoutId = setTimeout(() => {
+        setSaveSuccess(false);
+      }, 2000);
+      
+      // Cleanup timeout on component unmount or next save
+      return () => clearTimeout(timeoutId);
     } catch (err) {
+      console.error('Save error:', err);
       setError(err instanceof Error ? err.message : 'Failed to save itinerary');
+      throw err;
     } finally {
       setIsSaving(false);
     }
@@ -207,15 +347,7 @@ export function ItineraryBuilder({
             endDate={endDate}
             pace={pace}
             departurePoint={departurePoint}
-            onOptimizedItinerary={(optimizedDays) => {
-              const newLocations = optimizedDays.flatMap((day, dayIndex) =>
-                day.locations.map((location: Location) => ({
-                  ...location,
-                  day_index: dayIndex,
-                }))
-              );
-              setLocations(newLocations);
-            }}
+            onOptimizedItinerary={handleOptimizedItinerary}
           />
         </div>
       </div>
@@ -223,6 +355,11 @@ export function ItineraryBuilder({
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md">
           {error}
+        </div>
+      )}
+      {saveSuccess && (
+        <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded-md">
+          Itinerary saved successfully!
         </div>
       )}
 
@@ -235,20 +372,28 @@ export function ItineraryBuilder({
 
           return (
             <DailyItinerary
-            key={index}
-            date={addDays(startDate, index)}
-            locations={dayLocations}
-            onLocationsChange={(newLocations) => {
-              setLocations(prev => {
-                const otherDays = prev.filter(loc => loc.day_index !== index);
-                return [...otherDays, ...newLocations.map(loc => ({ ...loc, day_index: index }))];
-              });
-            }}
-            onLocationRemove={(locationId) => {
-              setLocations(prev => prev.filter(loc => loc.id !== locationId));
-            }}
-            onDropLocation={handleDropLocation}
-          />
+              key={index}
+              date={addDays(startDate, index)}
+              locations={dayLocations}
+              onLocationsChange={(newLocations) => {
+                setLocations(prev => {
+                  const otherDays = prev.filter(loc => loc.day_index !== index);
+                  // Preserve existing location data while updating day_index
+                  const updatedLocations = newLocations.map(loc => {
+                    const existingLocation = prev.find(existing => existing.id === loc.id);
+                    return {
+                      ...(existingLocation || loc),
+                      day_index: index
+                    };
+                  });
+                  return [...otherDays, ...updatedLocations];
+                });
+              }}
+              onLocationRemove={(locationId) => {
+                setLocations(prev => prev.filter(loc => loc.id !== locationId));
+              }}
+              onDropLocation={handleDropLocation}
+            />
           );
         })}
       </div>
@@ -257,11 +402,24 @@ export function ItineraryBuilder({
       <div className="flex justify-end">
         <button
           onClick={handleSave}
-          disabled={isSaving}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+          disabled={isSaving || saveSuccess}
+          className={`flex items-center gap-2 px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 transition-all duration-200 ${
+            saveSuccess 
+              ? 'bg-green-500 text-white hover:bg-green-600 focus:ring-green-500' 
+              : 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500'
+          } disabled:opacity-50`}
         >
-          <Save className="h-5 w-5" />
-          {isSaving ? 'Saving...' : 'Save Itinerary'}
+          {saveSuccess ? (
+            <>
+              <Check className="h-5 w-5" />
+              Saved!
+            </>
+          ) : (
+            <>
+              <Save className="h-5 w-5" />
+              {isSaving ? 'Saving...' : 'Save Itinerary'}
+            </>
+          )}
         </button>
       </div>
     </div>

@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Calendar, MapPin, Clock, Navigation2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { supabase } from '../lib/supabase';
 import { Trip } from '../types/trip';
-import { ItineraryBuilder } from '../components/ItineraryBuilder';
+import { ItineraryBuilder, Location } from '../components/ItineraryBuilder';
 import { useAuth } from '../contexts/AuthContext';
 
 export function TripView() {
@@ -12,8 +12,41 @@ export function TripView() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [trip, setTrip] = useState<Trip | null>(null);
+  const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
+
+  const fetchLocations = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('trip_locations')
+        .select('*')
+        .eq('trip_id', id)
+        .order('day_index, created_at');
+
+      if (error) throw error;
+      
+      if (data) {
+        const typedLocations = data.map(loc => ({
+          id: loc.id,
+          name: loc.name,
+          address: loc.address,
+          latitude: loc.latitude,
+          longitude: loc.longitude,
+          day_index: loc.day_index,
+          estimated_duration: loc.estimated_duration || undefined,
+          arrival_time: loc.arrival_time || undefined,
+          rating: loc.rating || undefined,
+          notes: loc.notes || undefined,
+        }));
+        setLocations(typedLocations);
+      }
+    } catch (err) {
+      console.error('Error fetching locations:', err);
+    }
+  };
 
   useEffect(() => {
     if (!user) {
@@ -21,44 +54,44 @@ export function TripView() {
       return;
     }
 
-    const fetchTrip = async () => {
+    const fetchTripAndLocations = async () => {
       try {
-        const { data, error } = await supabase
+        const { data: tripData, error: tripError } = await supabase
           .from('trips')
           .select('*')
           .eq('id', id)
           .single();
 
-        if (error) throw error;
-        if (!data) throw new Error('Trip not found');
+        if (tripError) throw tripError;
+        if (!tripData) throw new Error('Trip not found');
 
         setTrip({
-          ...data,
-          startDate: new Date(data.start_date),
-          endDate: new Date(data.end_date),
-          createdAt: new Date(data.created_at),
-          updatedAt: new Date(data.updated_at),
-          userId: data.user_id,
-          mustVisitPlaces: data.must_visit_places || [],
+          ...tripData,
+          startDate: new Date(tripData.start_date),
+          endDate: new Date(tripData.end_date),
+          userId: tripData.user_id,
+          mustVisitPlaces: tripData.must_visit_places || [],
           accommodation: {
-            name: data.accommodation_name || '',
-            address: data.accommodation_address || '',
-            latitude: data.accommodation_latitude,
-            longitude: data.accommodation_longitude,
+            name: tripData.accommodation_name || '',
+            address: tripData.accommodation_address || '',
+            latitude: tripData.accommodation_latitude,
+            longitude: tripData.accommodation_longitude,
           },
           departurePoint: {
-            name: data.departure_point_name || '',
-            address: data.departure_point_address || '',
-            latitude: data.departure_point_latitude || 0,
-            longitude: data.departure_point_longitude || 0,
+            name: tripData.departure_point_name || '',
+            address: tripData.departure_point_address || '',
+            latitude: tripData.departure_point_latitude || 0,
+            longitude: tripData.departure_point_longitude || 0,
           },
           returnPoint: {
-            name: data.return_point_name || '',
-            address: data.return_point_address || '',
-            latitude: data.return_point_latitude || 0,
-            longitude: data.return_point_longitude || 0,
+            name: tripData.return_point_name || '',
+            address: tripData.return_point_address || '',
+            latitude: tripData.return_point_latitude || 0,
+            longitude: tripData.return_point_longitude || 0,
           },
         });
+
+        await fetchLocations();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load trip');
       } finally {
@@ -66,23 +99,95 @@ export function TripView() {
       }
     };
 
-    fetchTrip();
-  }, [id, user, navigate]);
+    fetchTripAndLocations();
+  }, [user, navigate, id]);
 
-  const handleSaveItinerary = async (locations: any[]) => {
+  const handleSaveItinerary = async (locationsToSave: Location[]) => {
+    setSaveError(null);
+    setSaveSuccess(false);
+
     try {
-      const { error } = await supabase
+      // First, get all current locations to identify ones to delete
+      const { data: currentLocations } = await supabase
         .from('trip_locations')
-        .upsert(
-          locations.map((loc) => ({
-            trip_id: id,
-            ...loc,
-          }))
-        );
+        .select('id')
+        .eq('trip_id', id);
 
-      if (error) throw error;
+      const currentIds = new Set(currentLocations?.map(loc => loc.id) || []);
+      const newIds = new Set(locationsToSave.map(loc => loc.id));
+
+      // Find IDs to delete (in current but not in new)
+      const idsToDelete = Array.from(currentIds).filter(id => !newIds.has(id));
+
+      // Split locations into new and existing
+      const [existingLocations, newLocations] = locationsToSave.reduce<[Location[], Location[]]>(
+        ([existing, newLocs], loc) => {
+          if (currentIds.has(loc.id)) {
+            existing.push(loc);
+          } else {
+            newLocs.push(loc);
+          }
+          return [existing, newLocs];
+        }, 
+        [[], []]
+      );
+
+      // Delete removed locations
+      if (idsToDelete.length > 0) {
+        const { error: deleteError } = await supabase
+          .from('trip_locations')
+          .delete()
+          .in('id', idsToDelete);
+
+        if (deleteError) throw deleteError;
+      }
+
+      // Insert new locations
+      if (newLocations.length > 0) {
+        const { error: insertError } = await supabase
+          .from('trip_locations')
+          .insert(
+            newLocations.map(loc => ({
+              trip_id: id,
+              ...loc
+            }))
+          );
+
+        if (insertError) throw insertError;
+      }
+
+      // Update existing locations
+      if (existingLocations.length > 0) {
+        const { error: updateError } = await supabase
+          .from('trip_locations')
+          .upsert(
+            existingLocations.map(loc => ({
+              trip_id: id,
+              ...loc,
+              // Ensure required fields are set with proper fallbacks
+              name: loc.name.trim(),
+              address: loc.address?.trim() || loc.name.trim(),
+              latitude: typeof loc.latitude === 'number' ? loc.latitude : 0,
+              longitude: typeof loc.longitude === 'number' ? loc.longitude : 0,
+              day_index: loc.day_index
+            })),
+            {
+              onConflict: 'id',
+              ignoreDuplicates: false
+            }
+          );
+
+        if (updateError) throw updateError;
+      }
+
+      // Update local state
+      setLocations(locationsToSave);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
-      throw new Error('Failed to save itinerary');
+      const message = err instanceof Error ? err.message : 'Failed to save itinerary';
+      setSaveError(`Error saving itinerary: ${message}`);
+      throw err;
     }
   };
 
@@ -105,6 +210,16 @@ export function TripView() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {saveError && (
+          <div className="mb-4 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md">
+            {saveError}
+          </div>
+        )}
+        {saveSuccess && (
+          <div className="mb-4 bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded-md">
+            Itinerary saved successfully!
+          </div>
+        )}
         <div className="bg-white rounded-lg shadow-md p-6 mb-8">
           <div className="flex items-start justify-between">
             <div>
@@ -153,6 +268,7 @@ export function TripView() {
           departurePoint={trip.departurePoint}
           onSave={handleSaveItinerary}
           mustVisitPlaces={trip.mustVisitPlaces}
+          initialLocations={locations}
         />
       </div>
     </div>

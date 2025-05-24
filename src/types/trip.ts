@@ -38,7 +38,10 @@ export interface Location {
   address: string;
   latitude: number;
   longitude: number;
-  tripId: string;
-  dayIndex: number;
-  orderIndex: number;
+  trip_id: string;
+  day_index: number;
+  estimated_duration?: number;
+  arrival_time?: string;
+  rating?: number;
+  notes?: string;
 }

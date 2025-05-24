@@ -7,6 +7,7 @@ interface Location {
   address: string;
   latitude: number;
   longitude: number;
+  day_index: number;
   estimated_duration?: number;
   rating?: number;
   notes?: string;
@@ -24,7 +25,12 @@ interface SmartItineraryOptimizerProps {
   startDate: Date;
   endDate: Date;
   pace: 'relaxed' | 'balanced' | 'intensive';
-
+  departurePoint: {
+    latitude: number;
+    longitude: number;
+    name: string;
+    address: string;
+  };
   onOptimizedItinerary: (days: OptimizedDay[]) => void;
 }
 
@@ -33,6 +39,7 @@ export function SmartItineraryOptimizer({
   startDate,
   endDate,
   pace,
+  departurePoint,
   onOptimizedItinerary,
 }: SmartItineraryOptimizerProps) {
   const [isOptimizing, setIsOptimizing] = useState(false);
@@ -73,21 +80,32 @@ export function SmartItineraryOptimizer({
     setError(null);
 
     try {
-  
       const paceMultiplier = getPaceMultiplier(pace);
       const daysCount = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
       
+      // Add departure point as first location for distance calculations
+      const startLoc: Location = {
+        id: 'departure',
+        name: departurePoint.name,
+        address: departurePoint.address,
+        latitude: departurePoint.latitude,
+        longitude: departurePoint.longitude,
+        day_index: 0
+      };
+
       // Group locations by proximity using k-means clustering
-      const clusters = await clusterLocations(locations, daysCount);
+      const clusters = await clusterLocations([startLoc, ...locations], daysCount);
       
-      // For each cluster, optimize the route
+      // For each cluster, optimize the route starting from departure point
       const optimizedDays = await Promise.all(
         clusters.map(async (cluster, index) => {
           const dayDate = new Date(startDate);
           dayDate.setDate(dayDate.getDate() + index);
 
-          // Calculate optimal route within cluster
-          const optimizedLocations = optimizeRoute(cluster);
+          // Ensure the departure point is first on day 0
+          let optimizedLocations = optimizeRoute(
+            index === 0 ? cluster : cluster.filter(loc => loc.id !== 'departure')
+          );
 
           // Calculate total times
           let totalTravelTime = 0;
@@ -106,7 +124,7 @@ export function SmartItineraryOptimizer({
 
           return {
             date: dayDate,
-            locations: optimizedLocations,
+            locations: optimizedLocations.filter(loc => loc.id !== 'departure'),
             totalTravelTime,
             totalDuration,
           };
